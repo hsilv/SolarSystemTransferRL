@@ -1,24 +1,33 @@
 {
-  "sequence_id": "E-S",
-  "departure_offset_days": -351.3235431909561,
+  "sequence_id": "E-Ma-J-S-U-N",
+  "departure_offset_days": -290.59530436992645,
   "time_of_flights_days": [
-    2000.0
+    230.0,
+    650.0,
+    1200.0,
+    2925.445866584778,
+    4087.18740940094
   ],
-  "delta_v_total_kms": 16.83753125467187,
-  "delta_v_initial_kms": 11.163067062003165,
-  "delta_v_arrival_kms": 5.6744641926687045,
-  "delta_v_intermediate_kms": [],
-  "total_time_days": 2000.0,
-  "arrival_date_tdb": "2036-01-17 16:14:05.868",
-  "departure_date_tdb": "2030-07-27 16:14:05.868",
+  "delta_v_total_kms": 88.88867133676132,
+  "delta_v_initial_kms": 9.173286628370033,
+  "delta_v_arrival_kms": 17.611188981754257,
+  "delta_v_intermediate_kms": [
+    11.146892170476573,
+    20.87397485441324,
+    9.439787246856667,
+    20.643541454890542
+  ],
+  "total_time_days": 9092.633275985718,
+  "arrival_date_tdb": "2055-08-19 00:54:40.748",
+  "departure_date_tdb": "2030-09-26 09:42:45.702",
   "episode": {
-    "r": 179.061719,
+    "r": -2720.743439,
     "l": 1,
-    "t": 447.036242
+    "t": 776.972871
   },
   "TimeLimit.truncated": false,
   "terminal_observation": [
     0.0
   ],
-  "reward": 179.0617218017578
+  "reward": -2720.743408203125
 }

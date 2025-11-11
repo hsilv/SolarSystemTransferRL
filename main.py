@@ -17,9 +17,15 @@ from baseline_lambert import (
     solve_lambert_transfer,
 )
 from mga import evaluate_mga_safe, print_mga_result
-from sequences import SEQUENCE_CATALOG, SequenceDefinition, get_sequence
+from sequences import (
+    SEQUENCE_CATALOG,
+    SequenceDefinition,
+    get_sequence,
+    sequences_between,
+    resolve_body,
+)
 from train_ppo import run_training
-from visualization import plot_mga_route, animate_mga_route
+from visualization import plot_mga_route, animate_mga_route, animate_mga_full
 from pygmo_benchmark import optimize_sequence
 
 
@@ -130,6 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pipeline_parser.add_argument("--baseline-departure", type=str, default="2031-07-14", help="Baseline departure date (ISO, TDB).")
     pipeline_parser.add_argument("--baseline-tof-days", type=float, default=2555.0, help="Baseline time of flight in days.")
+    pipeline_parser.add_argument("--origin", type=str, default="Earth", help="Departure planet name.")
+    pipeline_parser.add_argument("--destination", type=str, default="Saturn", help="Arrival planet name.")
     pipeline_parser.add_argument("--timesteps", type=int, default=50_000, help="Training timesteps for PPO.")
     pipeline_parser.add_argument("--learning-rate", type=float, default=3e-4, help="Learning rate for PPO.")
     pipeline_parser.add_argument("--n-envs", type=int, default=2, help="Number of parallel environments for PPO.")
@@ -142,17 +150,12 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_parser.add_argument("--skip-training", action="store_true", help="Skip PPO training stage.")
     pipeline_parser.add_argument("--force-retrain", action="store_true", help="Retrain PPO even if existing artifacts are present.")
     pipeline_parser.add_argument("--skip-benchmark", action="store_true", help="Skip PyGMO benchmarking stage.")
-    pipeline_parser.add_argument("--sequence-id", type=str, default="E-J-S", help="Default sequence to evaluate if PPO produces no result.")
+    pipeline_parser.add_argument("--sequence-id", type=str, default=None, help="Force the use of a specific sequence identifier (otherwise auto-selected).")
     pipeline_parser.add_argument("--animate-mga", action="store_true", help="Render animations for each MGA leg using the best trajectory.")
     pipeline_parser.add_argument(
         "--animate-mga-allow-collision",
         action="store_true",
         help="Render MGA leg animations even if a potential collision is detected.",
-    )
-    pipeline_parser.add_argument(
-        "--skip-collision-refinement",
-        action="store_true",
-        help="Skip the local search that adjusts the MGA plan to avoid collisions.",
     )
     pipeline_parser.add_argument(
         "--verbose",
@@ -172,9 +175,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Additional reward per flyby leg during PPO training.",
     )
     pipeline_parser.add_argument(
-        "--allow-direct-sequence",
+        "--exclude-direct-sequence",
         action="store_true",
-        help="Include the direct Earth→Saturn sequence when training PPO (default: exclude).",
+        help="Exclude the direct transfer sequence when selecting allowed routes.",
     )
     pipeline_parser.add_argument("--population", type=int, default=32, help="PyGMO population size when benchmark runs.")
     pipeline_parser.add_argument("--generations", type=int, default=150, help="PyGMO generations when benchmark runs.")
@@ -239,46 +242,38 @@ def run_mga(args: argparse.Namespace) -> None:
     departure_date = sequence.reference_departure + args.departure_offset * u.day
     tof_days = resolve_tofs(sequence, args.tof_days)
 
-    if args.skip_collision_refinement:
-        print("[INFO] Skipping collision refinement; using provided TOFs as-is.")
-    try:
-        result = evaluate_mga_safe(
-            departure_date=departure_date,
-            sequence=sequence.bodies,
-            time_of_flights=tof_days,
-            enforce_collision_free=not args.skip_collision_refinement,
-            verbose=args.verbose,
-        )
-    except RuntimeError as exc:
-        print(f"[WARNING] {exc}")
-        print("[INFO] Falling back to PyGMO optimization for a feasible trajectory.")
-        pygmo_summary = optimize_sequence(
-            sequence_id=sequence.identifier,
-            departure_offset_bounds=(-180.0, 180.0),
-        )
-        departure_date = sequence.reference_departure + pygmo_summary["departure_offset_days"] * u.day
-        tof_days = pygmo_summary["time_of_flights_days"]
-        result = evaluate_mga_safe(
-            departure_date=departure_date,
-            sequence=sequence.bodies,
-            time_of_flights=tof_days,
-            enforce_collision_free=False,
-            verbose=args.verbose,
-        )
+    print("[INFO] Skipping collision refinement; using provided TOFs as-is.")
+    result = evaluate_mga_safe(
+        departure_date=departure_date,
+        sequence=sequence.bodies,
+        time_of_flights=tof_days,
+        enforce_collision_free=False,
+        verbose=args.verbose,
+    )
     print_mga_result(sequence.identifier, result, tof_days)
 
     if args.plot:
         plot_mga_route(result, output_path=args.output, show=not args.no_show)
         print(f"[INFO] MGA route saved to {args.output}")
         if args.animate_allow_collision:
-            animation_path = args.output.rsplit(".", 1)[0] + ".gif"
-            animate_mga_route(
+            base_path = args.output.rsplit(".", 1)[0]
+            per_leg_path = f"{base_path}_leg.gif"
+            per_leg_outputs = animate_mga_route(
                 result,
-                output_path=animation_path,
+                output_path=per_leg_path,
                 show=not args.no_show,
                 allow_collisions=True,
             )
-            print(f"[INFO] MGA animation saved to {animation_path}")
+            full_path = f"{base_path}_full.gif"
+            animate_mga_full(
+                result,
+                output_path=full_path,
+                show=not args.no_show,
+                allow_collisions=True,
+            )
+            for path in per_leg_outputs:
+                print(f"[INFO] MGA per-leg animation saved to {path}")
+            print(f"[INFO] MGA full animation saved to {full_path}")
 
 
 def resolve_tofs(sequence: SequenceDefinition, override: Iterable[float] | None) -> List[float]:
@@ -292,29 +287,6 @@ def resolve_tofs(sequence: SequenceDefinition, override: Iterable[float] | None)
             "Number of provided TOF values must match the number of legs in the sequence."
         )
     return override_list
-
-
-def print_mga_result(sequence_id: str, result: MgaResult, tof_days: Iterable[float]) -> None:
-    tof_iter = list(tof_days)
-    print(f"Sequence {sequence_id}: {result.legs[0].summary.departure_body.name} → {result.legs[-1].summary.arrival_body.name}")
-    print(
-        f"Departure date (TDB): {result.departure_date.tdb.iso} | Arrival date (TDB): "
-        f"{result.legs[-1].summary.arrival_date.tdb.iso}"
-    )
-    print(f"Total Δv: {result.total_delta_v.to(u.km / u.s):.3f}")
-    print(f"Total TOF: {result.total_time_of_flight.to(u.day).value:.1f} days")
-    for leg, tof in zip(result.legs, tof_iter):
-        print(
-            f"  Leg {leg.index + 1}: {leg.summary.departure_body.name} → {leg.summary.arrival_body.name} | "
-            f"TOF input {tof:.1f} d | Δv impulse {leg.impulsive_delta_v.to(u.km / u.s):.3f}"
-        )
-    if result.intermediate_delta_v:
-        for idx, dv in enumerate(result.intermediate_delta_v, start=1):
-            print(f"  Flyby impulse {idx}: {dv.to(u.km / u.s):.3f}")
-    print(
-        f"  Departure Δv: {result.initial_delta_v.to(u.km / u.s):.3f} | "
-        f"Arrival Δv: {result.arrival_delta_v.to(u.km / u.s):.3f}"
-    )
 
 
 def list_sequences(verbose: bool) -> None:
@@ -370,19 +342,35 @@ def run_pipeline(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    origin_body = resolve_body(args.origin)
+    destination_body = resolve_body(args.destination)
+
     if args.allowed_sequences:
-        allowed_sequences = args.allowed_sequences
-    elif args.allow_direct_sequence:
-        allowed_sequences = None
+        allowed_sequences = list(args.allowed_sequences)
     else:
-        allowed_sequences = [seq.identifier for seq in SEQUENCE_CATALOG if seq.identifier != "E-S"]
+        matching_sequences = sequences_between(args.origin, args.destination)
+        if not matching_sequences:
+            raise ValueError(f"No sequences found between {args.origin} and {args.destination}.")
+        if args.exclude_direct_sequence:
+            matching_sequences = tuple(seq for seq in matching_sequences if len(seq.bodies) > 2)
+        if not matching_sequences:
+            raise ValueError(
+                "Excluding the direct sequence leaves no available trajectories between "
+                f"{args.origin} and {args.destination}."
+            )
+        allowed_sequences = [seq.identifier for seq in matching_sequences]
 
     print("[STAGE 1] Solving baseline Lambert transfer...")
     baseline_departure = Time(args.baseline_departure, scale="tdb")
     if args.baseline_tof_days <= 0:
         raise ValueError("Baseline time of flight must be positive.")
     baseline_tof = args.baseline_tof_days * u.day
-    baseline_summary = solve_lambert_transfer(baseline_departure, baseline_tof)
+    baseline_summary = solve_lambert_transfer(
+        baseline_departure,
+        baseline_tof,
+        departure_body=origin_body,
+        arrival_body=destination_body,
+    )
     collision_body = check_transfer_collisions(baseline_summary)
     if collision_body:
         print(f"[WARNING] Potential collision detected with {collision_body} during baseline transfer.")
@@ -453,36 +441,28 @@ def run_pipeline(args: argparse.Namespace) -> None:
         tof_days_raw = best_info.get("time_of_flights_days")
         if tof_days_raw:
             tof_days = [float(value) for value in tof_days_raw]
+    if sequence_id is None:
+        if best_info and best_info.get("sequence_id"):
+            sequence_id = best_info["sequence_id"]
+        elif allowed_sequences:
+            sequence_id = allowed_sequences[0]
+        else:
+            sequence_id = SEQUENCE_CATALOG[0].identifier
+    if allowed_sequences and sequence_id not in allowed_sequences:
+        print(f"[WARNING] Sequence {sequence_id} is not in the allowed set; using {allowed_sequences[0]} instead.")
+        sequence_id = allowed_sequences[0]
     sequence = get_sequence(sequence_id)
     if tof_days is None:
         tof_days = [0.5 * (low + high) for low, high in sequence.tof_bounds_days]
     departure_date = sequence.reference_departure + departure_offset_days * u.day
-    if args.skip_collision_refinement:
-        print("[STAGE 6] Skipping collision refinement; using PPO outputs directly.")
-    try:
-        mga_result = evaluate_mga_safe(
-            departure_date=departure_date,
-            sequence=sequence.bodies,
-            time_of_flights=tof_days,
-            enforce_collision_free=not args.skip_collision_refinement,
-            verbose=args.verbose,
-        )
-    except RuntimeError as exc:
-        print(f"[WARNING] {exc}")
-        print("[STAGE 6] Falling back to PyGMO optimization for a feasible trajectory.")
-        pygmo_summary = optimize_sequence(
-            sequence_id=sequence.identifier,
-            departure_offset_bounds=(-180.0, 180.0),
-        )
-        departure_date = sequence.reference_departure + pygmo_summary["departure_offset_days"] * u.day
-        tof_days = pygmo_summary["time_of_flights_days"]
-        mga_result = evaluate_mga_safe(
-            departure_date=departure_date,
-            sequence=sequence.bodies,
-            time_of_flights=tof_days,
-            enforce_collision_free=False,
-            verbose=args.verbose,
-        )
+    print("[STAGE 6] Skipping collision refinement; using PPO outputs directly.")
+    mga_result = evaluate_mga_safe(
+        departure_date=departure_date,
+        sequence=sequence.bodies,
+        time_of_flights=tof_days,
+        enforce_collision_free=False,
+        verbose=args.verbose,
+    )
     print_mga_result(sequence.identifier, mga_result, tof_days)
     mga_plot = output_dir / f"mga_{sequence_id}.png"
     plot_mga_route(mga_result, output_path=str(mga_plot), show=False)
@@ -500,6 +480,14 @@ def run_pipeline(args: argparse.Namespace) -> None:
         )
         for path in mga_animations:
             print(f"[INFO] MGA animation stored at {path}")
+        full_animation_path = output_dir / "mga_full_animation.gif"
+        animate_mga_full(
+            mga_result,
+            output_path=str(full_animation_path),
+            show=False,
+            allow_collisions=args.animate_mga_allow_collision,
+        )
+        print(f"[INFO] MGA full animation stored at {full_animation_path}")
 
     if args.skip_benchmark:
         print("[STAGE 7] Skipping PyGMO benchmark as requested.")
