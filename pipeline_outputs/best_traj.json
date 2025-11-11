@@ -1,0 +1,24 @@
+{
+  "sequence_id": "E-S",
+  "departure_offset_days": -351.3235431909561,
+  "time_of_flights_days": [
+    2000.0
+  ],
+  "delta_v_total_kms": 16.83753125467187,
+  "delta_v_initial_kms": 11.163067062003165,
+  "delta_v_arrival_kms": 5.6744641926687045,
+  "delta_v_intermediate_kms": [],
+  "total_time_days": 2000.0,
+  "arrival_date_tdb": "2036-01-17 16:14:05.868",
+  "departure_date_tdb": "2030-07-27 16:14:05.868",
+  "episode": {
+    "r": 179.061719,
+    "l": 1,
+    "t": 447.036242
+  },
+  "TimeLimit.truncated": false,
+  "terminal_observation": [
+    0.0
+  ],
+  "reward": 179.0617218017578
+}

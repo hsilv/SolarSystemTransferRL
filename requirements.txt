@@ -1,0 +1,9 @@
+numpy
+matplotlib
+Pillow
+astropy
+poliastro
+gymnasium
+stable-baselines3
+pygmo
+spiceypy

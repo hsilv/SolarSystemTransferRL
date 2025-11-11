@@ -1,0 +1,17 @@
+{
+  "sequence_id": "E-J-S",
+  "departure_date_tdb": "2032-03-31 05:30:14.310",
+  "arrival_date_tdb": "2040-03-09 05:29:35.819",
+  "departure_offset_days": 261.2293322895657,
+  "time_of_flights_days": [
+    1099.999955576643,
+    1799.9995989332585
+  ],
+  "delta_v_total_kms": 26.135547609437936,
+  "delta_v_initial_kms": 9.385679155992296,
+  "delta_v_arrival_kms": 7.159658512029231,
+  "delta_v_intermediate_kms": [
+    9.590209941416406
+  ],
+  "total_time_days": 2899.999554509902
+}
