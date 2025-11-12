@@ -1,5 +1,7 @@
 # 🚀 Interplanetary Route Optimization with Reinforcement Learning
 
+![mga_full_animation](https://github.com/user-attachments/assets/5c0947b2-8efe-44f0-93a3-1f087cba7a21)
+
 ## 🛰 Overview
 
 This project aims to build an **AI-based system capable of finding optimal interplanetary routes** — for example, **from Earth to Saturn** — using **Reinforcement Learning (RL)** and **multi-gravity-assist (MGA)** trajectories.
